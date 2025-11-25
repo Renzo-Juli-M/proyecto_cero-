@@ -39,25 +39,60 @@ class _ArticleFormPageState extends State<ArticleFormPage> {
   @override
   void initState() {
     super.initState();
+
+    // Cargar ponentes primero
     _loadPonentes();
 
+    // Cargar datos del artículo si está editando
     if (isEditing) {
-      _titleController.text = widget.article['title'];
+      _titleController.text = widget.article['title'] ?? '';
       _descriptionController.text = widget.article['description'] ?? '';
       _selectedStudentId = widget.article['student_id'];
-      _type = widget.article['type'];
+      _type = widget.article['type'] ?? 'empirico';
       _shift = widget.article['shift'];
 
+      // ✨ FIX: Parsear fecha correctamente
       if (widget.article['presentation_date'] != null) {
-        _presentationDate = DateTime.parse(widget.article['presentation_date']);
+        try {
+          final dateStr = widget.article['presentation_date'].toString();
+          // Puede venir como "2025-11-24" o "2025-11-24T10:30:00"
+          _presentationDate = DateTime.parse(dateStr.split('T')[0]);
+        } catch (e) {
+          print('Error parseando fecha: $e');
+        }
       }
 
+      // ✨ FIX: Parsear hora correctamente
       if (widget.article['presentation_time'] != null) {
-        final timeParts = widget.article['presentation_time'].toString().split(':');
-        _presentationTime = TimeOfDay(
-          hour: int.parse(timeParts[0]),
-          minute: int.parse(timeParts[1]),
-        );
+        try {
+          final timeStr = widget.article['presentation_time'].toString();
+
+          // Puede venir en varios formatos:
+          // 1. "10:30:00" (formato SQL TIME)
+          // 2. "10:30" (formato corto)
+          // 3. "2025-11-24T10:30:00" (formato ISO timestamp)
+
+          String hourMin;
+          if (timeStr.contains('T')) {
+            // Formato ISO: extraer la parte de hora
+            hourMin = timeStr.split('T')[1].substring(0, 5);
+          } else if (timeStr.contains(':')) {
+            // Formato "HH:MM:SS" o "HH:MM"
+            final parts = timeStr.split(':');
+            hourMin = '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}';
+          } else {
+            // Fallback: asumir formato HH:MM
+            hourMin = timeStr;
+          }
+
+          final timeParts = hourMin.split(':');
+          _presentationTime = TimeOfDay(
+            hour: int.parse(timeParts[0]),
+            minute: int.parse(timeParts[1]),
+          );
+        } catch (e) {
+          print('Error parseando hora: $e');
+        }
       }
     }
   }
@@ -72,13 +107,20 @@ class _ArticleFormPageState extends State<ArticleFormPage> {
         queryParameters: {'type': 'ponente', 'per_page': 100},
       );
 
-      setState(() {
-        _ponentes = response.data['data']['data'];
-        _isLoadingPonentes = false;
-      });
+      if (mounted) {
+        setState(() {
+          _ponentes = response.data['data']['data'];
+          _isLoadingPonentes = false;
+        });
+      }
     } catch (e) {
-      setState(() => _isLoadingPonentes = false);
-      _showMessage('Error al cargar ponentes: $e', isError: true);
+      if (mounted) {
+        setState(() => _isLoadingPonentes = false);
+        // ✨ FIX: Usar WidgetsBinding para mostrar el mensaje después del build
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showMessage('Error al cargar ponentes: $e', isError: true);
+        });
+      }
     }
   }
 
@@ -134,22 +176,26 @@ class _ArticleFormPageState extends State<ArticleFormPage> {
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
   void _showMessage(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.error : AppColors.success,
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? AppColors.error : AppColors.success,
+        ),
+      );
+    }
   }
 
   Future<void> _selectDate() async {
@@ -321,7 +367,8 @@ class _ArticleFormPageState extends State<ArticleFormPage> {
                       const SizedBox(width: 12),
                       Text(
                         _presentationDate != null
-                            ? DateFormat('dd/MM/yyyy').format(_presentationDate!)
+                            ? DateFormat('dd/MM/yyyy')
+                            .format(_presentationDate!)
                             : 'Seleccionar fecha',
                         style: TextStyle(
                           color: _presentationDate != null

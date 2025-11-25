@@ -41,26 +41,36 @@ class _ImportPageState extends State<ImportPage> {
     setState(() => _isLoadingPeriods = true);
 
     try {
+      print('🔄 Intentando cargar periodos...');
       final dataSource = AdminRemoteDataSourceImpl(sl<DioClient>());
       final periods = await dataSource.getPeriods();
+
+      print('✅ Periodos cargados: ${periods.length}');
 
       setState(() {
         _periods = periods;
         _isLoadingPeriods = false;
 
         // Seleccionar automáticamente el periodo activo si existe
-        final activePeriod = periods.firstWhere(
-              (p) => p.isActive,
-          orElse: () => periods.isNotEmpty ? periods.first : throw Exception(),
-        );
-        _selectedPeriod = activePeriod;
+        if (periods.isNotEmpty) {
+          final activePeriod = periods.firstWhere(
+                (p) => p.isActive,
+            orElse: () => periods.first,
+          );
+          _selectedPeriod = activePeriod;
+          print('✅ Periodo seleccionado: ${activePeriod.name}');
 
-        // Cargar eventos del periodo seleccionado
-        if (_selectedPeriod != null) {
-          _loadEvents(_selectedPeriod!.id);
+          // Cargar eventos del periodo seleccionado
+          if (_selectedPeriod != null) {
+            _loadEvents(_selectedPeriod!.id);
+          }
+        } else {
+          print('⚠️ No hay periodos disponibles');
+          _showMessage('No hay periodos disponibles. Por favor crea un periodo primero.', isError: true);
         }
       });
     } catch (e) {
+      print('❌ Error al cargar periodos: $e');
       setState(() => _isLoadingPeriods = false);
       _showMessage('Error al cargar periodos: $e', isError: true);
     }

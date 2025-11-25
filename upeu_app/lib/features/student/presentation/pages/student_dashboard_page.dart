@@ -323,7 +323,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> {
                   child: _StatMini(
                     icon: Icons.star,
                     label: 'Promedio',
-                    value: article['average_score'].toStringAsFixed(1),
+                    value: _parseDouble(article['average_score']).toStringAsFixed(1),
                     color: AppColors.warning,
                   ),
                 ),
@@ -756,4 +756,12 @@ class _RecentAttendanceCard extends StatelessWidget {
       ),
     );
   }
+}
+// ✅ AGREGAR ESTE MÉTODO AL FINAL DE _StudentDashboardPageState
+double _parseDouble(dynamic value) {
+  if (value == null) return 0.0;
+  if (value is double) return value;
+  if (value is int) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? 0.0;
+  return 0.0;
 }

@@ -1,9 +1,13 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/api_constants.dart';
+import '../../../../core/network/dio_client.dart';
 import '../../../../core/network/local_storage.dart';
 import '../../../../injection_container.dart';
+import 'package:dio/dio.dart';
 
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
@@ -15,14 +19,17 @@ class ReportsPage extends StatefulWidget {
 class _ReportsPageState extends State<ReportsPage> {
   bool _isExporting = false;
   String? _exportingType;
+  double _downloadProgress = 0.0;
 
   Future<void> _exportReport(String type, String title, String endpoint) async {
     setState(() {
       _isExporting = true;
       _exportingType = type;
+      _downloadProgress = 0.0;
     });
 
     try {
+      // 1. Obtener token
       final localStorage = sl<LocalStorage>();
       final token = localStorage.getToken();
 
@@ -31,36 +38,180 @@ class _ReportsPageState extends State<ReportsPage> {
         return;
       }
 
-      final url = '${ApiConstants.baseUrl}$endpoint';
-      final uri = Uri.parse(url);
+      // 2. Obtener directorio - NO REQUIERE PERMISOS
+      Directory directory;
 
-      // Abrir URL con el token en los headers (el navegador manejará la descarga)
-      if (await canLaunchUrl(uri)) {
-        // Para web, abrimos en una nueva pestaña con el token
-        final downloadUrl = '$url?token=$token';
-        await launchUrl(Uri.parse(downloadUrl), mode: LaunchMode.externalApplication);
+      if (Platform.isAndroid) {
+        // Usar getExternalStorageDirectory() que no requiere permisos
+        final tempDir = await getExternalStorageDirectory();
+        directory = Directory('${tempDir!.path}/Download');
 
-        _showMessage('Descarga iniciada: $title');
+        // Crear carpeta si no existe
+        if (!await directory.exists()) {
+          await directory.create(recursive: true);
+        }
       } else {
-        _showMessage('No se pudo iniciar la descarga', isError: true);
+        directory = await getApplicationDocumentsDirectory();
       }
-    } catch (e) {
-      _showMessage('Error al exportar: $e', isError: true);
-    } finally {
+
+      // 3. Crear nombre de archivo con timestamp
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final fileName = '${title.toLowerCase().replaceAll(' ', '_')}_$timestamp.xlsx';
+      final filePath = '${directory.path}/$fileName';
+
+      print('📥 Descargando a: $filePath');
+
+      // 4. Descargar archivo con Dio
+      final dioClient = sl<DioClient>();
+      await dioClient.dio.download(
+        '${ApiConstants.baseUrl}$endpoint',
+        filePath,
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          },
+          responseType: ResponseType.bytes,
+        ),
+        onReceiveProgress: (received, total) {
+          if (total != -1) {
+            setState(() {
+              _downloadProgress = received / total;
+            });
+            print('📊 Progreso: ${(received / total * 100).toStringAsFixed(0)}%');
+          }
+        },
+      );
+
       setState(() {
         _isExporting = false;
         _exportingType = null;
       });
+
+      // 5. Mostrar diálogo de éxito
+      if (mounted) {
+        final result = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.check_circle,
+                    color: AppColors.success,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(child: Text('Descarga completa')),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Archivo guardado exitosamente:',
+                  style: TextStyle(fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.folder, size: 20, color: AppColors.info),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          fileName,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Ubicación: ${directory.path}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cerrar'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('Abrir archivo'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        // 6. Abrir archivo si el usuario acepta
+        if (result == true) {
+          try {
+            final openResult = await OpenFilex.open(filePath);
+            if (openResult.type != ResultType.done) {
+              _showMessage('Archivo descargado en: ${directory.path}');
+            }
+          } catch (e) {
+            _showMessage('Archivo guardado en: ${directory.path}');
+          }
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _isExporting = false;
+        _exportingType = null;
+      });
+      print('❌ Error: $e');
+      _showMessage('Error al exportar: $e', isError: true);
     }
   }
 
   void _showMessage(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.error : AppColors.success,
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? AppColors.error : AppColors.success,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -107,6 +258,51 @@ class _ReportsPageState extends State<ReportsPage> {
               ],
             ),
             const SizedBox(height: 32),
+
+            // Barra de progreso
+            if (_isExporting) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.primary.withOpacity(0.3),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Descargando... ${(_downloadProgress * 100).toStringAsFixed(0)}%',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(
+                      value: _downloadProgress,
+                      backgroundColor: Colors.grey[300],
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
 
             // Reporte completo
             _buildReportCard(
@@ -246,17 +442,17 @@ class _ReportsPageState extends State<ReportsPage> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    '• Cada reporte incluye todos los datos actualizados',
+                    '• Se guardan en el almacenamiento de la app',
                     style: TextStyle(fontSize: 13),
                   ),
                   SizedBox(height: 4),
                   Text(
-                    '• El reporte completo incluye todas las tablas',
+                    '• Puedes abrirlos directamente desde la notificación',
                     style: TextStyle(fontSize: 13),
                   ),
                   SizedBox(height: 4),
                   Text(
-                    '• Los archivos tienen formato profesional con encabezados',
+                    '• Cada archivo tiene formato profesional con encabezados',
                     style: TextStyle(fontSize: 13),
                   ),
                 ],
@@ -277,7 +473,7 @@ class _ReportsPageState extends State<ReportsPage> {
     required bool isExporting,
   }) {
     return InkWell(
-      onTap: isExporting ? null : onTap,
+      onTap: _isExporting ? null : onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),

@@ -35,8 +35,9 @@ dependencies:
   equatable: ^2.0.5
     # NUEVOS - Para QR
   qr_flutter: ^4.1.0           # Para generar QR
-  mobile_scanner: ^3.5.0        # Para escanear QR
-  permission_handler: ^11.0.0   # Para permisos de cámara
+  mobile_scanner: ^3.5.0
+
+  # Para escanear QR
 
   # ... las que ya tienes
   file_picker: ^8.0.0
@@ -54,7 +55,14 @@ dependencies:
     # Local Storage
   shared_preferences: ^2.2.2
 
-    # UI
+  path_provider: ^2.1.1
+  permission_handler: ^11.0.1 # Para permisos de cámara
+  open_filex: ^4.3.4
+
+
+
+
+  # UI
   flutter_svg: ^2.0.9
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

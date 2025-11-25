@@ -1,15 +1,17 @@
 class ApiConstants {
   // Cambia esta URL según tu configuración
-  static const String baseUrl = 'http://10.0.2.2:8000/api';
+  //static const String baseUrl = 'http://10.0.2.2:8000/api';
   // Si usas dispositivo físico: http://TU_IP_LOCAL:8000
-  //static const String baseUrl = 'http://192.168.1.14:8000/api';
+  static const String baseUrl = 'http://172.20.10.5:8000/api';
 
 
 
 
-  // Si usas Chrome: http://localhost:8000
-  // static const String baseUrl = 'http://localhost:8000/api';
+  // static const String jghfbaseUrl = '_http://localhost:8000/api';
 
+  // ✅ NUEVAS CONSTANTES PARA GANADORES
+  static const String adminWinners = '/admin/winners';
+  static const String adminAbsoluteWinner = '/admin/absolute-winner';
 
   // ========== AUTENTICACIÓN ==========
   static const String loginAdmin = '/login/admin';

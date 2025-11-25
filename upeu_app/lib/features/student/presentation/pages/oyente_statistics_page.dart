@@ -532,7 +532,7 @@ class _StatCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: MainAxisAlignment.start, // 👈 CAMBIO CLAVE
         children: [
           Container(
             padding: const EdgeInsets.all(8),
@@ -542,6 +542,7 @@ class _StatCard extends StatelessWidget {
             ),
             child: Icon(icon, color: color, size: 24),
           ),
+          const SizedBox(height: 8), // 👈 pequeño espacio seguro
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -567,6 +568,7 @@ class _StatCard extends StatelessWidget {
           ),
         ],
       ),
+
     );
   }
 }

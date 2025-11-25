@@ -45,10 +45,20 @@ class MyArticleModel {
           .map((e) => EvaluationDetail.fromJson(e))
           .toList(),
       totalEvaluations: json['total_evaluations'],
-      averageScore: (json['average_score'] ?? 0).toDouble(),
+      // ✅ FIX: Parsear desde String o double
+      averageScore: _parseDouble(json['average_score']),
       totalAttendances: json['total_attendances'],
       criteriaAverages: CriteriaAverages.fromJson(json['criteria_averages']),
     );
+  }
+
+  // ✅ HELPER PARA PARSEAR DOUBLE
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
   }
 }
 
@@ -101,15 +111,25 @@ class EvaluationDetail {
     return EvaluationDetail(
       juror: json['juror'],
       jurorSpecialty: json['juror_specialty'],
-      introduccion: (json['introduccion'] ?? 0).toDouble(),
-      metodologia: (json['metodologia'] ?? 0).toDouble(),
-      desarrollo: (json['desarrollo'] ?? 0).toDouble(),
-      conclusiones: (json['conclusiones'] ?? 0).toDouble(),
-      presentacion: (json['presentacion'] ?? 0).toDouble(),
-      promedio: (json['promedio'] ?? 0).toDouble(),
+      // ✅ FIX: Parsear desde String
+      introduccion: _parseDouble(json['introduccion']),
+      metodologia: _parseDouble(json['metodologia']),
+      desarrollo: _parseDouble(json['desarrollo']),
+      conclusiones: _parseDouble(json['conclusiones']),
+      presentacion: _parseDouble(json['presentacion']),
+      promedio: _parseDouble(json['promedio']),
       comentarios: json['comentarios'],
       evaluatedAt: json['evaluated_at'],
     );
+  }
+
+  // ✅ HELPER PARA PARSEAR DOUBLE
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
   }
 }
 
@@ -130,11 +150,21 @@ class CriteriaAverages {
 
   factory CriteriaAverages.fromJson(Map<String, dynamic> json) {
     return CriteriaAverages(
-      introduccion: (json['introduccion'] ?? 0).toDouble(),
-      metodologia: (json['metodologia'] ?? 0).toDouble(),
-      desarrollo: (json['desarrollo'] ?? 0).toDouble(),
-      conclusiones: (json['conclusiones'] ?? 0).toDouble(),
-      presentacion: (json['presentacion'] ?? 0).toDouble(),
+      // ✅ FIX: Parsear desde String
+      introduccion: _parseDouble(json['introduccion']),
+      metodologia: _parseDouble(json['metodologia']),
+      desarrollo: _parseDouble(json['desarrollo']),
+      conclusiones: _parseDouble(json['conclusiones']),
+      presentacion: _parseDouble(json['presentacion']),
     );
+  }
+
+  // ✅ HELPER PARA PARSEAR DOUBLE
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
   }
 }

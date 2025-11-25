@@ -370,6 +370,7 @@ class _SuccessDialog extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Icon(
                         Icons.person,
@@ -377,9 +378,13 @@ class _SuccessDialog extends StatelessWidget {
                         color: AppColors.textSecondary,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        'Ponente: $ponenteName',
-                        style: const TextStyle(fontSize: 13),
+                      Expanded(
+                        child: Text(
+                          'Ponente: $ponenteName',
+                          style: const TextStyle(fontSize: 13),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),

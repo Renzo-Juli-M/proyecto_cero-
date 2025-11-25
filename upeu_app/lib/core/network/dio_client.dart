@@ -13,7 +13,7 @@ class DioClient {
         receiveTimeout: const Duration(seconds: 30),
         responseType: ResponseType.json,
         headers: {
-          'Content-Type': 'application/json',
+          //'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
       ),
@@ -48,7 +48,7 @@ class DioClient {
 
   Dio get dio => _dio;
 
-  // Métodos helper
+  // Métodos shelper
   Future<Response> get(
       String path, {
         Map<String, dynamic>? queryParameters,

@@ -15,8 +15,11 @@ class MyAttendancesPage extends StatefulWidget {
 
 class _MyAttendancesPageState extends State<MyAttendancesPage> {
   List<AttendanceModel> _attendances = [];
+  List<Map<String, dynamic>> _periods = [];
   bool _isLoading = true;
+  bool _isLoadingPeriods = true;
   int _totalAttendances = 0;
+  int? _selectedPeriodId;
 
   final Map<String, String> _articleTypes = {
     'revision_sistematica': 'Revisión Sistemática',
@@ -28,7 +31,30 @@ class _MyAttendancesPageState extends State<MyAttendancesPage> {
   @override
   void initState() {
     super.initState();
+    _loadPeriods();
     _loadAttendances();
+  }
+
+  Future<void> _loadPeriods() async {
+    setState(() => _isLoadingPeriods = true);
+
+    try {
+      final dioClient = sl<DioClient>();
+      final response = await dioClient.get(ApiConstants.periods);
+
+      setState(() {
+        _periods = List<Map<String, dynamic>>.from(
+          response.data['data'].map((period) => {
+            'id': period['id'],
+            'name': period['name'],
+          }),
+        );
+        _isLoadingPeriods = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingPeriods = false);
+      debugPrint('Error al cargar periodos: $e');
+    }
   }
 
   Future<void> _loadAttendances() async {
@@ -36,7 +62,14 @@ class _MyAttendancesPageState extends State<MyAttendancesPage> {
 
     try {
       final dioClient = sl<DioClient>();
-      final response = await dioClient.get(ApiConstants.studentMyAttendances);
+
+      // Construir URL con filtro de periodo si existe
+      String url = ApiConstants.studentMyAttendances;
+      if (_selectedPeriodId != null) {
+        url += '?period_id=$_selectedPeriodId';
+      }
+
+      final response = await dioClient.get(url);
 
       setState(() {
         _totalAttendances = response.data['data']['total_attendances'];
@@ -49,6 +82,13 @@ class _MyAttendancesPageState extends State<MyAttendancesPage> {
       setState(() => _isLoading = false);
       _showMessage('Error al cargar asistencias: $e', isError: true);
     }
+  }
+
+  void _onPeriodChanged(int? periodId) {
+    setState(() {
+      _selectedPeriodId = periodId;
+    });
+    _loadAttendances();
   }
 
   void _showMessage(String message, {bool isError = false}) {
@@ -68,10 +108,62 @@ class _MyAttendancesPageState extends State<MyAttendancesPage> {
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: Column(
         children: [
+          // Filtro de periodo
+          if (!_isLoadingPeriods && _periods.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: Colors.grey.shade300),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Filtrar por periodo',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: DropdownButton<int?>(
+                      isExpanded: true,
+                      value: _selectedPeriodId,
+                      hint: const Text('Todos los periodos'),
+                      underline: const SizedBox(),
+                      icon: const Icon(Icons.arrow_drop_down, color: AppColors.primary),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('Todos los periodos'),
+                        ),
+                        ..._periods.map((period) {
+                          return DropdownMenuItem<int?>(
+                            value: period['id'] as int,
+                            child: Text(period['name'] as String),
+                          );
+                        }).toList(),
+                      ],
+                      onChanged: _onPeriodChanged,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // Header con total
           Container(
             width: double.infinity,
@@ -109,9 +201,11 @@ class _MyAttendancesPageState extends State<MyAttendancesPage> {
                           color: AppColors.primary,
                         ),
                       ),
-                      const Text(
-                        'Asistencias Registradas',
-                        style: TextStyle(
+                      Text(
+                        _selectedPeriodId != null
+                            ? 'Asistencias en ${_periods.firstWhere((p) => p['id'] == _selectedPeriodId)['name']}'
+                            : 'Asistencias Registradas',
+                        style: const TextStyle(
                           fontSize: 14,
                           color: AppColors.textSecondary,
                         ),
@@ -125,20 +219,24 @@ class _MyAttendancesPageState extends State<MyAttendancesPage> {
 
           // Lista
           Expanded(
-            child: _attendances.isEmpty
-                ? const Center(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _attendances.isEmpty
+                ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.event_busy,
                     size: 64,
                     color: AppColors.textSecondary,
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Text(
-                    'No has registrado asistencias',
-                    style: TextStyle(
+                    _selectedPeriodId != null
+                        ? 'No hay asistencias en este periodo'
+                        : 'No has registrado asistencias',
+                    style: const TextStyle(
                       fontSize: 16,
                       color: AppColors.textSecondary,
                     ),
@@ -297,23 +395,16 @@ class _AttendanceCard extends StatelessWidget {
                     color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    'Presentación: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(attendance.article.presentationDate!))}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  if (attendance.article.presentationTime != null) ...[
-                    const SizedBox(width: 4),
-                    Text(
-                      '${attendance.article.presentationTime}',
+                  Expanded(
+                    child: Text(
+                      'Presentación: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(attendance.article.presentationDate!))}${attendance.article.presentationTime != null ? ' - ${attendance.article.presentationTime}' : ''}',
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ],
+                  ),
                 ],
               ),
             ],

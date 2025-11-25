@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Pusher\Pusher;
@@ -19,31 +20,94 @@ class StudentController extends Controller
 {
     // ========== MÉTODOS PARA ADMIN ==========
 
+    /**
+     * ✨ MÉTODO ACTUALIZADO: Listar estudiantes con filtros de periodo
+     */
     public function index(Request $request)
     {
-        $query = Student::with('user');
+        try {
+            $query = Student::with(['user', 'period', 'event']);
 
-        // Filtros
-        if ($request->has('type')) {
-            $query->where('type', $request->type);
+            // Filtro por búsqueda (DNI, código, nombre)
+            if ($request->has('search') && !empty($request->search)) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('dni', 'like', "%{$search}%")
+                      ->orWhere('student_code', 'like', "%{$search}%")
+                      ->orWhere('first_name', 'like', "%{$search}%")
+                      ->orWhere('last_name', 'like', "%{$search}%")
+                      ->orWhere('username', 'like', "%{$search}%");
+                });
+            }
+
+            // ✨ NUEVO: Filtro por periodo
+            if ($request->has('period_id') && !empty($request->period_id)) {
+                $query->where('period_id', $request->period_id);
+            }
+
+            // ✨ NUEVO: Filtro por evento
+            if ($request->has('event_id') && !empty($request->event_id)) {
+                $query->where('event_id', $request->event_id);
+            }
+
+            // Filtro por tipo
+            if ($request->has('type') && !empty($request->type)) {
+                $query->where('type', $request->type);
+            }
+
+            // ✨ NUEVO: Filtro por sede
+            if ($request->has('sede') && !empty($request->sede)) {
+                $query->where('sede', 'like', "%{$request->sede}%");
+            }
+
+            // ✨ NUEVO: Filtro por escuela
+            if ($request->has('escuela_profesional') && !empty($request->escuela_profesional)) {
+                $query->where('escuela_profesional', 'like', "%{$request->escuela_profesional}%");
+            }
+
+            // ✨ NUEVO: Filtro por ciclo
+            if ($request->has('ciclo') && !empty($request->ciclo)) {
+                $query->where('ciclo', $request->ciclo);
+            }
+
+            // ✨ NUEVO: Filtro por grupo
+            if ($request->has('grupo') && !empty($request->grupo)) {
+                $query->where('grupo', $request->grupo);
+            }
+
+            // Ordenar por nombre
+            $query->orderBy('first_name')->orderBy('last_name');
+
+            // Paginación
+            $perPage = $request->get('per_page', 15);
+            $students = $query->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $students,
+                'filters_applied' => [
+                    'search' => $request->search,
+                    'period_id' => $request->period_id,
+                    'event_id' => $request->event_id,
+                    'type' => $request->type,
+                    'sede' => $request->sede,
+                    'escuela_profesional' => $request->escuela_profesional,
+                    'ciclo' => $request->ciclo,
+                    'grupo' => $request->grupo,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error al listar estudiantes', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener estudiantes',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        if ($request->has('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('dni', 'like', "%{$search}%")
-                    ->orWhere('student_code', 'like', "%{$search}%")
-                    ->orWhere('first_name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%");
-            });
-        }
-
-        $students = $query->paginate($request->per_page ?? 15);
-
-        return response()->json([
-            'success' => true,
-            'data' => $students,
-        ]);
     }
 
     public function store(Request $request)
@@ -96,7 +160,7 @@ class StudentController extends Controller
 
     public function show($id)
     {
-        $student = Student::with(['user', 'articles', 'attendances'])->findOrFail($id);
+        $student = Student::with(['user', 'articles', 'attendances', 'period', 'event'])->findOrFail($id);
 
         return response()->json([
             'success' => true,
@@ -326,60 +390,60 @@ class StudentController extends Controller
     }
 
     /**
- * Verificar si el ponente tiene un QR activo
- * GET /api/student/qr-status
- */
-public function checkQRStatus(Request $request)
-{
-    $user = $request->user();
-    $student = Student::where('user_id', $user->id)->first();
+     * Verificar si el ponente tiene un QR activo
+     * GET /api/student/qr-status
+     */
+    public function checkQRStatus(Request $request)
+    {
+        $user = $request->user();
+        $student = Student::where('user_id', $user->id)->first();
 
-    if (!$student || $student->type !== 'ponente') {
-        return response()->json([
-            'success' => false,
-            'message' => 'Solo los ponentes pueden verificar el estado del QR',
-        ], 403);
-    }
+        if (!$student || $student->type !== 'ponente') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo los ponentes pueden verificar el estado del QR',
+            ], 403);
+        }
 
-    $article = Article::where('student_id', $student->id)->first();
+        $article = Article::where('student_id', $student->id)->first();
 
-    if (!$article) {
-        return response()->json([
-            'success' => false,
-            'message' => 'No tienes un artículo asignado',
-        ], 404);
-    }
+        if (!$article) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes un artículo asignado',
+            ], 404);
+        }
 
-    // Buscar QR activo (no expirado)
-    $activeQR = DB::table('article_qr_codes')
-        ->where('article_id', $article->id)
-        ->where('expires_at', '>', now())
-        ->orderBy('created_at', 'desc')
-        ->first();
+        // Buscar QR activo (no expirado)
+        $activeQR = DB::table('article_qr_codes')
+            ->where('article_id', $article->id)
+            ->where('expires_at', '>', now())
+            ->orderBy('created_at', 'desc')
+            ->first();
 
-    if ($activeQR) {
+        if ($activeQR) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'has_active_qr' => true,
+                    'qr_token' => $activeQR->qr_token,
+                    'article_id' => $article->id,
+                    'article_title' => $article->title,
+                    'expires_at' => $activeQR->expires_at,
+                    'remaining_minutes' => now()->diffInMinutes($activeQR->expires_at, false),
+                ],
+            ]);
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
-                'has_active_qr' => true,
-                'qr_token' => $activeQR->qr_token,
+                'has_active_qr' => false,
                 'article_id' => $article->id,
                 'article_title' => $article->title,
-                'expires_at' => $activeQR->expires_at,
-                'remaining_minutes' => now()->diffInMinutes($activeQR->expires_at, false),
             ],
         ]);
     }
-
-    return response()->json([
-        'success' => true,
-        'data' => [
-            'has_active_qr' => false,
-            'article_id' => $article->id,
-            'article_title' => $article->title,
-        ],
-    ]);
-}
 
     public function availableArticles(Request $request)
     {
@@ -489,58 +553,74 @@ public function checkQRStatus(Request $request)
         }
     }
 
-    public function myAttendances(Request $request)
-    {
-        $user = $request->user();
-        $student = Student::where('user_id', $user->id)->first();
+public function myAttendances(Request $request)
+{
+    $user = $request->user();
+    $student = Student::where('user_id', $user->id)->first();
 
-        if (!$student) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Estudiante no encontrado',
-            ], 404);
-        }
-
-        if ($student->type !== 'oyente') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Solo los oyentes tienen historial de asistencias',
-            ], 403);
-        }
-
-        $attendances = Attendance::where('student_id', $student->id)
-            ->with('article.student')
-            ->orderBy('created_at', 'desc')
-            ->get()
-            ->map(function ($attendance) {
-                return [
-                    'id' => $attendance->id,
-                    'article' => [
-                        'id' => $attendance->article->id,
-                        'title' => $attendance->article->title,
-                        'type' => $attendance->article->type,
-                        'presentation_date' => $attendance->article->presentation_date,
-                        'presentation_time' => $attendance->article->presentation_time,
-                    ],
-                    'ponente' => [
-                        'full_name' => $attendance->article->student->fullName(),
-                        'student_code' => $attendance->article->student->student_code,
-                    ],
-                    'attended_at' => $attendance->created_at->format('Y-m-d H:i:s'),
-                ];
-            });
-
+    if (!$student) {
         return response()->json([
-            'success' => true,
-            'data' => [
-                'total_attendances' => $attendances->count(),
-                'attendances' => $attendances,
-            ],
-        ]);
+            'success' => false,
+            'message' => 'Estudiante no encontrado',
+        ], 404);
     }
 
+    if ($student->type !== 'oyente') {
+        return response()->json([
+            'success' => false,
+            'message' => 'Solo los oyentes tienen historial de asistencias',
+        ], 403);
+    }
 
-   // ========== MÉTODO MEJORADO: GENERAR QR CON JWT ==========
+    // ✨ NUEVO: Obtener filtro de periodo
+    $periodId = $request->query('period_id');
+
+    // Query base de asistencias
+    $query = Attendance::where('student_id', $student->id)
+        ->with('article.student');
+
+    // ✨ NUEVO: Filtrar por periodo si se proporciona
+    if ($periodId) {
+        $query->whereHas('article.student', function ($q) use ($periodId) {
+            $q->where('period_id', $periodId);
+        });
+    }
+
+    $attendances = $query
+        ->orderBy('created_at', 'desc')
+        ->get()
+        ->map(function ($attendance) {
+            return [
+                'id' => $attendance->id,
+                'article' => [
+                    'id' => $attendance->article->id,
+                    'title' => $attendance->article->title,
+                    'type' => $attendance->article->type,
+                    'presentation_date' => $attendance->article->presentation_date,
+                    'presentation_time' => $attendance->article->presentation_time,
+                ],
+                'ponente' => [
+                    'full_name' => $attendance->article->student->first_name . ' ' .
+                                  $attendance->article->student->last_name,
+                    'student_code' => $attendance->article->student->student_code,
+                ],
+                'attended_at' => $attendance->created_at->format('Y-m-d H:i:s'),
+            ];
+        });
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'total_attendances' => $attendances->count(),
+            'attendances' => $attendances,
+            'filtered_by_period' => $periodId !== null,
+            'period_id' => $periodId,
+        ],
+    ]);
+}
+
+
+    // ========== MÉTODO MEJORADO: GENERAR QR CON JWT ==========
 
     /**
      * Generar QR con JWT firmado para asistencia
@@ -782,38 +862,38 @@ public function checkQRStatus(Request $request)
     /**
      * Notificar que se generó un QR
      */
-private function notifyQRGenerated($articleId, $articleTitle)
-{
-    try {
-        // Verificar si Pusher está configurado
-        if (config('broadcasting.default') !== 'pusher') {
-            \Log::info('QR generado para artículo: ' . $articleTitle);
-            return;
+    private function notifyQRGenerated($articleId, $articleTitle)
+    {
+        try {
+            // Verificar si Pusher está configurado
+            if (config('broadcasting.default') !== 'pusher') {
+                Log::info('QR generado para artículo: ' . $articleTitle);
+                return;
+            }
+
+            $pusher = new Pusher(
+                config('broadcasting.connections.pusher.key'),
+                config('broadcasting.connections.pusher.secret'),
+                config('broadcasting.connections.pusher.app_id'),
+                [
+                    'cluster' => config('broadcasting.connections.pusher.options.cluster'),
+                    'useTLS' => true,
+                ]
+            );
+
+            $pusher->trigger(
+                'article.' . $articleId,
+                'qr.generated',
+                [
+                    'message' => 'QR de asistencia generado',
+                    'article_title' => $articleTitle,
+                    'timestamp' => now()->toIso8601String(),
+                ]
+            );
+        } catch (\Exception $e) {
+            Log::error('Error al enviar notificación Pusher: ' . $e->getMessage());
         }
-
-        $pusher = new Pusher(
-            config('broadcasting.connections.pusher.key'),
-            config('broadcasting.connections.pusher.secret'),
-            config('broadcasting.connections.pusher.app_id'),
-            [
-                'cluster' => config('broadcasting.connections.pusher.options.cluster'),
-                'useTLS' => true,
-            ]
-        );
-
-        $pusher->trigger(
-            'article.' . $articleId,
-            'qr.generated',
-            [
-                'message' => 'QR de asistencia generado',
-                'article_title' => $articleTitle,
-                'timestamp' => now()->toIso8601String(),
-            ]
-        );
-    } catch (\Exception $e) {
-        \Log::error('Error al enviar notificación Pusher: ' . $e->getMessage());
     }
-}
 
     /**
      * Notificar que alguien registró asistencia
@@ -821,6 +901,12 @@ private function notifyQRGenerated($articleId, $articleTitle)
     private function notifyAttendanceRegistered($articleId, $studentName, $studentCode)
     {
         try {
+            // Verificar si Pusher está configurado
+            if (config('broadcasting.default') !== 'pusher') {
+                Log::info("Asistencia registrada: $studentName ($studentCode)");
+                return;
+            }
+
             $pusher = new Pusher(
                 config('broadcasting.connections.pusher.key'),
                 config('broadcasting.connections.pusher.secret'),
@@ -846,7 +932,7 @@ private function notifyQRGenerated($articleId, $articleTitle)
                 ]
             );
         } catch (\Exception $e) {
-            \Log::error('Error al enviar notificación Pusher: ' . $e->getMessage());
+            Log::error('Error al enviar notificación Pusher: ' . $e->getMessage());
         }
     }
 
@@ -899,5 +985,75 @@ private function notifyQRGenerated($articleId, $articleTitle)
                 'pusher_channel' => 'article.' . $article->id,
             ],
         ]);
+    }
+
+    // ========== 📊 ESTADÍSTICAS PARA OYENTES (NUEVO) ==========
+
+    /**
+     * Estadísticas del oyente
+     * GET /api/student/statistics
+     */
+    public function oyenteStatistics(Request $request)
+    {
+        try {
+            $user = $request->user();
+            $student = Student::where('user_id', $user->id)->firstOrFail();
+
+            // Validar que sea oyente
+            if ($student->type !== 'oyente') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este endpoint es solo para oyentes'
+                ], 403);
+            }
+
+            // Asistencias del oyente
+            $attendances = Attendance::where('student_id', $student->id)
+                ->with(['article:id,title,type,presentation_date,presentation_time'])
+                ->get();
+
+            // Estadísticas generales
+            $stats = [
+                'total_attendances' => $attendances->count(),
+                'articles_attended' => $attendances->pluck('article_id')->unique()->count(),
+                'by_type' => $attendances->groupBy(function ($attendance) {
+                    return $attendance->article->type ?? 'unknown';
+                })->map(function ($group) {
+                    return $group->count();
+                }),
+            ];
+
+            // Últimas asistencias
+            $recent_attendances = $attendances->sortByDesc('created_at')->take(10)->map(function ($attendance) {
+                return [
+                    'id' => $attendance->id,
+                    'article' => [
+                        'id' => $attendance->article->id,
+                        'title' => $attendance->article->title,
+                        'type' => $attendance->article->type,
+                        'presentation_date' => $attendance->article->presentation_date,
+                        'presentation_time' => $attendance->article->presentation_time,
+                    ],
+                    'attended_at' => $attendance->created_at->format('Y-m-d H:i:s'),
+                ];
+            })->values();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'stats' => $stats,
+                    'recent_attendances' => $recent_attendances,
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error en estadísticas de oyente: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener estadísticas',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

@@ -10,6 +10,8 @@ import 'students_list_page.dart';
 import 'jurors_list_page.dart';
 import 'articles_list_page.dart';
 import 'reports_page.dart';
+import 'winners_page.dart';
+
 
 class AdminDashboardPage extends StatefulWidget {
   const AdminDashboardPage({super.key});
@@ -212,6 +214,20 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           },
         ),
         const SizedBox(height: 12),
+        _ActionButton(
+          icon: Icons.emoji_events,
+          title: 'Ganadores',
+          subtitle: 'Ver ganadores por categoría',
+          color: const Color(0xFFFFD700), // Color dorado
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const WinnersPage(),
+              ),
+            );
+          },
+        ),
         _ActionButton(
           icon: Icons.assessment,
           title: 'Reportes y Exportación',

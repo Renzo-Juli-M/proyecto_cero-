@@ -44,6 +44,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/statistics/articles-by-type', [AdminController::class, 'articlesByType']);
         Route::get('/statistics/articles-ranking', [AdminController::class, 'articlesRanking']);
 
+        // ---------- 🏆 GANADORES (NUEVO) ----------
+        Route::get('/winners', [AdminController::class, 'getWinners']);
+        Route::get('/absolute-winner', [AdminController::class, 'getAbsoluteWinner']);
+
         // ---------- IMPORTACIONES ----------
         Route::post('/import/students', [AdminController::class, 'importStudents']);
         Route::post('/import/jurors', [AdminController::class, 'importJurors']);
@@ -61,7 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/jurors/available', [ArticleController::class, 'availableJurors']);
 
         // =====================================================================
-        //                         NUEVO: PERIODOS
+        //                         PERIODOS
         // =====================================================================
         Route::prefix('periods')->group(function () {
             Route::get('/', [PeriodController::class, 'index']);          // listar periodos
@@ -74,7 +78,7 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // =====================================================================
-        //                          NUEVO: EVENTOS
+        //                          EVENTOS
         // =====================================================================
         Route::prefix('events')->group(function () {
             Route::get('/', [EventController::class, 'index']);           // listar eventos

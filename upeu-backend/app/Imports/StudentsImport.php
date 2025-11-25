@@ -32,6 +32,12 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
     {
         $this->periodId = $periodId;
         $this->eventId = $eventId;
+
+        // Log para debug
+        Log::info('StudentsImport inicializado', [
+            'period_id' => $this->periodId,
+            'event_id' => $this->eventId,
+        ]);
     }
 
     /**
@@ -39,6 +45,10 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
      */
     public function collection(Collection $rows)
     {
+        Log::info('Iniciando procesamiento de filas', [
+            'total_rows' => $rows->count(),
+        ]);
+
         foreach ($rows as $index => $row) {
             $rowNumber = $index + 2; // +2 porque Excel empieza en 1 y hay header
 
@@ -89,6 +99,12 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
                 ];
             }
         }
+
+        Log::info('Procesamiento completado', [
+            'imported' => $this->imported,
+            'errors' => count($this->errors),
+            'skipped' => $this->skipped,
+        ]);
     }
 
     /**
@@ -120,6 +136,34 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
             $normalizedValue = is_string($value) ? trim($value) : $value;
 
             $normalizedRow[$finalKey] = $normalizedValue;
+        }
+
+        // ✨ CONVERSIONES AUTOMÁTICAS
+
+        // Convertir grupo a string si es numérico
+        if (isset($normalizedRow['grupo']) && is_numeric($normalizedRow['grupo'])) {
+            $normalizedRow['grupo'] = (string)$normalizedRow['grupo'];
+        }
+
+        // Convertir ciclo a string si es numérico
+        if (isset($normalizedRow['ciclo']) && is_numeric($normalizedRow['ciclo'])) {
+            $normalizedRow['ciclo'] = (string)$normalizedRow['ciclo'];
+        }
+
+        // Convertir N/A en foto_url a null
+        if (isset($normalizedRow['foto_url'])) {
+            $foto = strtoupper(trim($normalizedRow['foto_url']));
+            if ($foto === 'N/A' || $foto === 'NULL' || empty($foto)) {
+                $normalizedRow['foto_url'] = null;
+            }
+        }
+
+        // Convertir N/A o vacío en tipo a 'oyente' por defecto
+        if (isset($normalizedRow['tipo'])) {
+            $tipo = strtoupper(trim($normalizedRow['tipo']));
+            if ($tipo === 'N/A' || $tipo === 'NULL' || empty($tipo)) {
+                $normalizedRow['tipo'] = 'oyente';
+            }
         }
 
         return $normalizedRow;
@@ -161,7 +205,7 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
                 'email',
                 'max:255',
             ],
-            // NUEVOS CAMPOS REQUERIDOS
+            // CAMPOS ACADÉMICOS REQUERIDOS
             'sede' => [
                 'required',
                 'string',
@@ -198,7 +242,6 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
                 'nullable',
                 'string',
                 'max:500',
-                'url', // Validar que sea una URL válida
             ],
         ];
 
@@ -219,58 +262,88 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
             'grupo.required' => 'El grupo es obligatorio',
             'username.required' => 'El usuario es obligatorio',
             'username.regex' => 'El usuario solo puede contener letras, números, puntos, guiones y guiones bajos',
-            'foto_url.url' => 'La foto debe ser una URL válida',
         ];
 
         return Validator::make($row, $rules, $messages);
     }
 
     /**
-     * Verificar duplicados
+     * ✨ MEJORADO: Verificar duplicados considerando periodos
      */
     protected function checkDuplicates(array $row, int $rowNumber)
     {
-        // Verificar DNI
-        $existingStudent = Student::where('dni', $row['dni'])->first();
-        if ($existingStudent) {
-            return [
-                'row' => $rowNumber,
-                'data' => $this->getSafeRowData($row),
-                'errors' => ["El estudiante con DNI {$row['dni']} ya existe en la base de datos"],
-            ];
+        // 1. VERIFICAR DNI
+        if ($this->periodId) {
+            // Si hay periodo, permitir mismo DNI en diferentes periodos
+            $existingInPeriod = Student::where('dni', $row['dni'])
+                ->where('period_id', $this->periodId)
+                ->first();
+
+            if ($existingInPeriod) {
+                return [
+                    'row' => $rowNumber,
+                    'data' => $this->getSafeRowData($row),
+                    'errors' => ["El estudiante con DNI {$row['dni']} ya existe en este periodo"],
+                ];
+            }
+        } else {
+            // Sin periodo, verificar duplicado global
+            $existingStudent = Student::where('dni', $row['dni'])->first();
+            if ($existingStudent) {
+                return [
+                    'row' => $rowNumber,
+                    'data' => $this->getSafeRowData($row),
+                    'errors' => ["El estudiante con DNI {$row['dni']} ya existe en la base de datos"],
+                ];
+            }
         }
 
-        // Verificar código de estudiante
-        $existingCode = Student::where('student_code', $row['codigo'])->first();
-        if ($existingCode) {
-            return [
-                'row' => $rowNumber,
-                'data' => $this->getSafeRowData($row),
-                'errors' => ["El código de estudiante {$row['codigo']} ya está en uso"],
-            ];
+        // 2. VERIFICAR CÓDIGO DE ESTUDIANTE
+        if ($this->periodId) {
+            // Permitir mismo código en diferentes periodos
+            $existingCodeInPeriod = Student::where('student_code', $row['codigo'])
+                ->where('period_id', $this->periodId)
+                ->first();
+
+            if ($existingCodeInPeriod) {
+                return [
+                    'row' => $rowNumber,
+                    'data' => $this->getSafeRowData($row),
+                    'errors' => ["El código {$row['codigo']} ya está en uso en este periodo"],
+                ];
+            }
+        } else {
+            $existingCode = Student::where('student_code', $row['codigo'])->first();
+            if ($existingCode) {
+                return [
+                    'row' => $rowNumber,
+                    'data' => $this->getSafeRowData($row),
+                    'errors' => ["El código de estudiante {$row['codigo']} ya está en uso"],
+                ];
+            }
         }
 
-        // Verificar email
+        // 3. VERIFICAR EMAIL (siempre único globalmente)
         $existingEmail = User::where('email', strtolower($row['email']))->first();
         if ($existingEmail) {
             return [
                 'row' => $rowNumber,
                 'data' => $this->getSafeRowData($row),
-                'errors' => ["El email {$row['email']} ya está registrado"],
+                'errors' => ["El email {$row['email']} ya está registrado en el sistema"],
             ];
         }
 
-        // Verificar username en users
+        // 4. VERIFICAR USERNAME en users (siempre único globalmente)
         $existingUsername = User::where('username', strtolower($row['username']))->first();
         if ($existingUsername) {
             return [
                 'row' => $rowNumber,
                 'data' => $this->getSafeRowData($row),
-                'errors' => ["El username {$row['username']} ya está en uso"],
+                'errors' => ["El username {$row['username']} ya está en uso en el sistema"],
             ];
         }
 
-        // Verificar username en students (por si acaso)
+        // 5. VERIFICAR USERNAME en students (por si acaso)
         $existingStudentUsername = Student::where('username', strtolower($row['username']))->first();
         if ($existingStudentUsername) {
             return [
@@ -310,8 +383,8 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
                 'sede' => $row['sede'],
                 'escuela_profesional' => $row['escuela_profesional'],
                 'programa_estudio' => $row['programa_estudio'],
-                'ciclo' => $row['ciclo'],
-                'grupo' => $row['grupo'],
+                'ciclo' => (string)$row['ciclo'],
+                'grupo' => (string)$row['grupo'],
                 'username' => strtolower($row['username']),
                 'foto_url' => $row['foto_url'] ?? null,
             ];
@@ -333,8 +406,7 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
             Log::info('Estudiante importado exitosamente', [
                 'row' => $rowNumber,
                 'dni' => $row['dni'],
-                'email' => $row['email'],
-                'username' => $row['username'],
+                'period_id' => $this->periodId,
             ]);
 
         } catch (\Exception $e) {
@@ -343,6 +415,7 @@ class StudentsImport implements ToCollection, WithHeadingRow, WithBatchInserts, 
             Log::error('Error al crear estudiante', [
                 'row' => $rowNumber,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             throw $e;

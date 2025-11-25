@@ -6,27 +6,27 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Run the migrations.
+     */
     public function up(): void
     {
         Schema::create('article_qr_codes', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('article_id')->constrained()->onDelete('cascade');
-
-            // JWT Token firmado (usa string para permitir índice)
-            $table->text('qr_token');
-
-            $table->timestamp('expires_at');
+            $table->foreignId('article_id')->constrained('articles')->onDelete('cascade');
+            $table->text('qr_token'); // Token JWT del QR (puede ser largo)
+            $table->timestamp('expires_at'); // Fecha de expiración
             $table->timestamps();
 
-            // Índices
+            // Índices para optimizar búsquedas
             $table->index('article_id');
-            $table->index('expires_at');
-
-            // Clave única válida
-            $table->unique(['article_id', 'qr_token']);
+            $table->index(['article_id', 'expires_at']);
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::dropIfExists('article_qr_codes');

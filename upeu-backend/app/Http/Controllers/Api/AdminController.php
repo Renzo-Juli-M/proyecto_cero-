@@ -15,6 +15,10 @@ use App\Exports\EvaluationsExport;
 use App\Exports\AttendancesExport;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use App\Models\Article;
+use App\Models\Student;
+use App\Models\Evaluation;
+use App\Models\Juror;
 
 class AdminController extends Controller
 {
@@ -22,7 +26,6 @@ class AdminController extends Controller
      * ============================
      *  IMPORTAR ESTUDIANTES (NUEVO)
      * ============================
-     * Este método reemplaza al método original importStudents()
      */
     public function importStudents(Request $request)
     {
@@ -288,12 +291,12 @@ class AdminController extends Controller
     public function dashboard()
     {
         $stats = [
-            'total_students' => \App\Models\Student::count(),
-            'total_ponentes' => \App\Models\Student::where('type', 'ponente')->count(),
-            'total_oyentes' => \App\Models\Student::where('type', 'oyente')->count(),
-            'total_jurors' => \App\Models\Juror::count(),
-            'total_articles' => \App\Models\Article::count(),
-            'total_evaluations' => \App\Models\Evaluation::count(),
+            'total_students' => Student::count(),
+            'total_ponentes' => Student::where('type', 'ponente')->count(),
+            'total_oyentes' => Student::where('type', 'oyente')->count(),
+            'total_jurors' => Juror::count(),
+            'total_articles' => Article::count(),
+            'total_evaluations' => Evaluation::count(),
             'total_attendances' => \App\Models\Attendance::count(),
         ];
 
@@ -305,30 +308,30 @@ class AdminController extends Controller
     {
         $stats = [
             'students' => [
-                'total' => \App\Models\Student::count(),
-                'ponentes' => \App\Models\Student::where('type', 'ponente')->count(),
-                'oyentes' => \App\Models\Student::where('type', 'oyente')->count(),
+                'total' => Student::count(),
+                'ponentes' => Student::where('type', 'ponente')->count(),
+                'oyentes' => Student::where('type', 'oyente')->count(),
             ],
             'jurors' => [
-                'total' => \App\Models\Juror::count(),
-                'with_articles' => \App\Models\Juror::has('articles')->count(),
-                'with_evaluations' => \App\Models\Juror::has('evaluations')->count(),
+                'total' => Juror::count(),
+                'with_articles' => Juror::has('articles')->count(),
+                'with_evaluations' => Juror::has('evaluations')->count(),
             ],
             'articles' => [
-                'total' => \App\Models\Article::count(),
-                'by_type' => \App\Models\Article::selectRaw('type, count(*) as count')
+                'total' => Article::count(),
+                'by_type' => Article::selectRaw('type, count(*) as count')
                     ->groupBy('type')
                     ->pluck('count', 'type'),
-                'by_shift' => \App\Models\Article::selectRaw('shift, count(*) as count')
+                'by_shift' => Article::selectRaw('shift, count(*) as count')
                     ->whereNotNull('shift')
                     ->groupBy('shift')
                     ->pluck('count', 'shift'),
-                'with_jurors' => \App\Models\Article::has('jurors', '>=', 2)->count(),
-                'evaluated' => \App\Models\Article::has('evaluations')->count(),
+                'with_jurors' => Article::has('jurors', '>=', 2)->count(),
+                'evaluated' => Article::has('evaluations')->count(),
             ],
             'evaluations' => [
-                'total' => \App\Models\Evaluation::count(),
-                'average_score' => round(\App\Models\Evaluation::avg('promedio'), 2),
+                'total' => Evaluation::count(),
+                'average_score' => round(Evaluation::avg('promedio'), 2),
             ],
             'attendances' => [
                 'total' => \App\Models\Attendance::count(),
@@ -349,7 +352,7 @@ class AdminController extends Controller
 
     public function articlesByType()
     {
-        $articles = \App\Models\Article::with(['student', 'jurors', 'evaluations'])
+        $articles = Article::with(['student', 'jurors', 'evaluations'])
             ->get()
             ->groupBy('type')
             ->map(function ($group) {
@@ -359,7 +362,7 @@ class AdminController extends Controller
                         return [
                             'id' => $article->id,
                             'title' => $article->title,
-                            'ponente' => $article->student->fullName(),
+                            'ponente' => $article->student->first_name . ' ' . $article->student->last_name,
                             'jurors_count' => $article->jurors()->count(),
                             'average_score' => round($article->averageScore(), 2),
                             'attendances' => $article->totalAttendances(),
@@ -374,14 +377,14 @@ class AdminController extends Controller
 
     public function articlesRanking()
     {
-        $articles = \App\Models\Article::with(['student', 'evaluations'])
+        $articles = Article::with(['student', 'evaluations'])
             ->has('evaluations')
             ->get()
             ->map(function ($article) {
                 return [
                     'id' => $article->id,
                     'title' => $article->title,
-                    'ponente' => $article->student->fullName(),
+                    'ponente' => $article->student->first_name . ' ' . $article->student->last_name,
                     'type' => $article->type,
                     'average_score' => round($article->averageScore(), 2),
                     'evaluations_count' => $article->evaluations()->count(),
@@ -391,5 +394,188 @@ class AdminController extends Controller
             ->values();
 
         return response()->json(['success' => true, 'data' => $articles]);
+    }
+
+
+    // =============================
+    //    🏆 GANADORES (NUEVO)
+    // =============================
+
+    /**
+     * Obtener ganadores por categoría de artículo
+     * GET /api/admin/winners?limit=3
+     */
+    public function getWinners(Request $request)
+    {
+        try {
+            // Obtener parámetros opcionales
+            $limit = $request->query('limit', 3); // Top 3 por defecto
+            $periodId = $request->query('period_id'); // Filtrar por periodo
+
+            // Tipos de artículos (categorías)
+            $articleTypes = [
+                'revision_sistematica' => 'Revisión Sistemática',
+                'empirico' => 'Empírico',
+                'teorico' => 'Teórico',
+                'estudio_caso' => 'Estudio de Caso',
+            ];
+
+            $winners = [];
+
+            foreach ($articleTypes as $type => $typeName) {
+                // Query base para artículos del tipo
+                $query = Article::where('type', $type)
+                    ->with(['student:id,first_name,last_name']) // ✅ Cargar nombres desde students
+                    ->withCount('evaluations')
+                    ->withAvg('evaluations', 'promedio');
+
+                // Filtrar por periodo si se proporciona
+                if ($periodId) {
+                    $query->whereHas('student', function ($q) use ($periodId) {
+                        $q->where('period_id', $periodId);
+                    });
+                }
+
+                // Obtener top artículos con evaluaciones ordenados por promedio DESC
+                $topArticles = $query
+                    ->having('evaluations_count', '>', 0)
+                    ->orderBy('evaluations_avg_promedio', 'desc')
+                    ->limit($limit)
+                    ->get();
+
+                // Formatear datos
+                $winners[$type] = [
+                    'category' => $typeName,
+                    'type_key' => $type,
+                    'articles' => $topArticles->map(function ($article, $index) {
+                        return [
+                            'position' => $index + 1,
+                            'article_id' => $article->id,
+                            'title' => $article->title,
+                            'description' => $article->description,
+                            'ponente' => [
+                                'id' => $article->student->id,
+                                'full_name' => $article->student->first_name . ' ' .
+                                              $article->student->last_name, // ✅ Desde students
+                            ],
+                            'average_score' => round($article->evaluations_avg_promedio, 2),
+                            'total_evaluations' => $article->evaluations_count,
+                            'presentation_date' => $article->presentation_date,
+                            'presentation_time' => $article->presentation_time,
+                        ];
+                    })->values(),
+                    'total_articles' => Article::where('type', $type)->count(),
+                ];
+            }
+
+            // Estadísticas generales
+            $generalStats = [
+                'total_articles' => Article::count(),
+                'total_evaluated' => Article::has('evaluations')->count(),
+                'total_ponentes' => Student::where('type', 'ponente')->count(),
+                'average_score_global' => round(
+                    Evaluation::avg('promedio') ?? 0,
+                    2
+                ),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'winners' => $winners,
+                    'stats' => $generalStats,
+                    'generated_at' => now()->format('Y-m-d H:i:s'),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al obtener ganadores: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener ganadores',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener ganador absoluto (mejor promedio general)
+     * GET /api/admin/absolute-winner
+     */
+    public function getAbsoluteWinner(Request $request)
+    {
+        try {
+            $periodId = $request->query('period_id');
+
+            $query = Article::with(['student:id,first_name,last_name']) // ✅ Cargar nombres desde students
+                ->withCount('evaluations')
+                ->withAvg('evaluations', 'promedio');
+
+            // Filtrar por periodo si se proporciona
+            if ($periodId) {
+                $query->whereHas('student', function ($q) use ($periodId) {
+                    $q->where('period_id', $periodId);
+                });
+            }
+
+            // Obtener el mejor artículo (promedio más alto)
+            $winner = $query
+                ->having('evaluations_count', '>', 0)
+                ->orderBy('evaluations_avg_promedio', 'desc')
+                ->first();
+
+            if (!$winner) {
+                return response()->json([
+                    'success' => true,
+                    'data' => null,
+                    'message' => 'No hay ganador aún'
+                ]);
+            }
+
+            // Obtener detalles de evaluaciones con jurados
+            $evaluations = Evaluation::where('article_id', $winner->id)
+                ->with(['juror:id,first_name,last_name']) // ✅ Cargar nombres desde jurors
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'article' => [
+                        'id' => $winner->id,
+                        'title' => $winner->title,
+                        'description' => $winner->description,
+                        'type' => $winner->type,
+                        'presentation_date' => $winner->presentation_date,
+                        'presentation_time' => $winner->presentation_time,
+                    ],
+                    'ponente' => [
+                        'id' => $winner->student->id,
+                        'full_name' => $winner->student->first_name . ' ' .
+                                      $winner->student->last_name, // ✅ Desde students
+                    ],
+                    'score' => [
+                        'average' => round($winner->evaluations_avg_promedio, 2),
+                        'total_evaluations' => $winner->evaluations_count,
+                    ],
+                    'evaluations' => $evaluations->map(function ($eval) {
+                        return [
+                            'juror' => $eval->juror->first_name . ' ' .
+                                      $eval->juror->last_name, // ✅ Desde jurors
+                            'score' => round($eval->promedio, 2),
+                        ];
+                    }),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al obtener ganador absoluto: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener ganador absoluto',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }
